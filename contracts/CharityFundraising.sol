@@ -10,6 +10,7 @@ contract CharityFundraising {
         string description;
         uint goal;
         uint amountRaised;
+        uint deadline;
         bool active;
     }
 
@@ -21,15 +22,18 @@ contract CharityFundraising {
         address owner,
         string title,
         string description,
-        uint goal
+        uint goal,
+        uint deadline
     );
     event DonationReceived(uint campaignCount, address donor, uint amount);
     event Withdrawal(uint campaignCount, address owner, uint amount);
+    event Refund(uint campaignCount, address donor, uint amount);
 
     function createCampaign(
         string memory _title,
         string memory _description,
-        uint _goal
+        uint _goal,
+        uint _duration
     ) public {
         require(_goal > 0, "Goal must be greater than 0");
 
@@ -40,6 +44,7 @@ contract CharityFundraising {
             _description,
             _goal,
             0,
+            block.timestamp + _duration, // Set deadline
             true
         );
 
@@ -48,7 +53,8 @@ contract CharityFundraising {
             msg.sender,
             _title,
             _description,
-            _goal
+            _goal,
+            block.timestamp + _duration
         );
     }
 
@@ -56,6 +62,7 @@ contract CharityFundraising {
         Campaign storage campaign = campaigns[_campaignId];
 
         require(campaign.active, "Campaign is not active");
+        require(block.timestamp < campaign.deadline, "Campaign deadline has passed");
         require(msg.value > 0, "Donation must be greater than 0");
 
         campaign.amountRaised += msg.value;
@@ -65,19 +72,27 @@ contract CharityFundraising {
     function withdraw(uint _campaignId) public {
         Campaign storage campaign = campaigns[_campaignId];
         require(campaign.active, "Campaign is not active");
-        require(
-            msg.sender == campaign.owner,
-            "Only the owner can withdraw"
-        );
-        require(
-            campaign.amountRaised >= campaign.goal,
-            "Goal not reached"
-        );
+        require(block.timestamp > campaign.deadline, "Deadline has not passed");
+        require(msg.sender == campaign.owner, "Only the owner can withdraw");
+        require(campaign.amountRaised >= campaign.goal, "Goal not reached");
 
         campaign.active = false;
         uint amount = campaign.amountRaised;
 
         payable(msg.sender).transfer(amount);
         emit Withdrawal(_campaignId, msg.sender, amount);
+    }
+
+    function refund(uint _campaignId) public {
+        Campaign storage campaign = campaigns[_campaignId];
+        require(campaign.active, "Campaign is not active");
+        require(block.timestamp >= campaign.deadline, "Deadline has not passed");
+        require(msg.sender != campaign.owner, "Owner cannot refund");
+
+        uint amount = campaign.amountRaised;
+        campaign.amountRaised = 0;
+
+        payable(msg.sender).transfer(amount);
+        emit Refund(_campaignId, msg.sender, amount);
     }
 }
